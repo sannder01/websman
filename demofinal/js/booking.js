@@ -549,6 +549,13 @@
       ui.seat.value = '';
       messages.push('Пожелание по ПК из предыдущего плана сброшено: выбран другой зал.');
     }
+    // Check company size after a requested PC has resolved the final room.
+    for (const [key, maximum] of [['guests', rooms[ui.room.value]?.capacity || 20], ['duration', 12]]) {
+      if (!query.has(key)) continue;
+      const raw = query.get(key);
+      if (/^\d{1,2}$/.test(raw) && integer(Number(raw), 1, maximum)) ui[key].value = raw;
+      else messages.push(key === 'guests' ? 'Число игроков из ссылки не подходит выбранному залу.' : 'Длительность из ссылки должна быть от 1 до 12 часов.');
+    }
     if (gameValue !== null) {
       if (has(games, gameValue)) ui.game.value = gameValue;
       else messages.push('Игра из ссылки не распознана.');
@@ -567,7 +574,7 @@
   function clearEntryQuery() {
     try {
       const url = new URL(window.location.href);
-      for (const key of ['room', 'seat', 'game', 'mode']) url.searchParams.delete(key);
+      for (const key of ['room', 'seat', 'game', 'mode', 'guests', 'duration']) url.searchParams.delete(key);
       window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
     } catch {
       // Local field reset still works if browser history is unavailable.
@@ -855,7 +862,7 @@
   }
   if (query.get('mode') === 'hourly') ui.mode.value = 'hourly';
   refreshConstraints(); renderEstimate(); saveDraft();
-  const hasEntry = ['room', 'seat', 'game', 'mode'].some(key => query.has(key)) || !!window.location.hash;
+  const hasEntry = ['room', 'seat', 'game', 'mode', 'guests', 'duration'].some(key => query.has(key)) || !!window.location.hash;
   clearEntryQuery();
   editing();
   if (window.PixelCart && typeof window.PixelCart.subscribe === 'function') window.PixelCart.subscribe(() => {

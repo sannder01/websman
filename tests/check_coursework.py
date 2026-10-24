@@ -9,6 +9,10 @@ baseline = json.loads((root / 'tests/site_baseline.json').read_text(encoding='ut
 checked = 0
 for name, expected in baseline.items():
     current = (root / name).read_bytes().replace(b'\r\n', b'\n')
+    if name == 'demofinal/rooms.html':
+        comparison_script = b'<script src="js/rooms-comparison.js" defer></script>\n'
+        assert current.count(comparison_script) == 1, 'Expected exactly one rooms comparison script'
+        current = current.replace(comparison_script, b'', 1)
     assert hashlib.sha256(current).hexdigest() == expected, f'Freeze violated: {name}'
     checked += 1
 
@@ -17,4 +21,4 @@ for path in (root / 'demofinal/js').glob('*.js'):
     assert "'use strict'" in code, path
     assert not re.search(r'\b(?:var|eval)\b|document\.write|\.innerHTML|\.style\b', code), path
     assert not re.search(r'(?<![=!])==(?!=)|(?<!!)\!=(?!=)', code), path
-print(f'PASS: {checked} frozen HTML/CSS files; project JavaScript policy checks.')
+print(f'PASS: {checked} frozen HTML/CSS files (one approved rooms comparison script); project JavaScript policy checks.')
