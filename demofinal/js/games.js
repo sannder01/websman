@@ -1,55 +1,56 @@
 'use strict';
-(() => {
-  const M = window.PixelMain;
-  const search = document.getElementById('games-search');
-  if (!search) return;
-  const category = document.getElementById('games-category');
-  const tools = document.getElementById('games-tools');
-  const results = document.getElementById('games-results');
-  const empty = document.getElementById('games-empty');
-  const games = document.getElementById('games-list');
-  const apps = document.getElementById('apps-list');
-  const catalog = [...document.querySelectorAll('#games-list > [data-game-id], #apps-list > [data-game-id]')].map(element => ({
-    id: element.dataset.gameId,
-    name: element.querySelector('h2').textContent,
-    category: element.dataset.gameCategory,
-    aliases: element.dataset.gameSearch,
-    genre: element.querySelector('article > p').textContent,
-    template: element.cloneNode(true)
-  }));
+// Rewrite 1: .find(), .clone(), .append() and delegated .on() replace querySelector,
+// cloneNode, append and per-button addEventListener. Rendering is shorter; storage logic is unchanged.
+$(function () {
+  const $search = $('#games-search');
+  if (!$search.length) return;
+  const $category = $('#games-category');
+  const $tools = $('#games-tools');
+  const $results = $('#games-results');
+  const $empty = $('#games-empty');
+  const $games = $('#games-list');
+  const $apps = $('#apps-list');
+  const catalog = [];
+  $('#games-list > [data-game-id], #apps-list > [data-game-id]').each(function () {
+    const $card = $(this);
+    catalog.push({
+      id: $card.attr('data-game-id'),
+      name: $card.find('h2').text(),
+      category: $card.attr('data-game-category'),
+      aliases: $card.attr('data-game-search'),
+      template: $card.clone()
+    });
+  });
   const storageKey = 'pixel-favorite-games-v1';
   const knownIds = new Set(catalog.map(item => item.id));
   let storageAvailable = true;
   let storageWarning = '';
   let favorites = readFavorites();
 
-  // Add the new controls to the existing filter panel using its Bootstrap classes.
-  const favoriteTools = M.node('div', '', 'd-flex flex-column flex-md-row flex-wrap gap-3 mt-3 align-items-md-center');
-  const favoriteControl = M.node('div');
-  const check = M.node('div', '', 'form-check');
-  const favoriteOnly = M.node('input', '', 'form-check-input');
-  favoriteOnly.id = 'games-favorites-only';
-  favoriteOnly.type = 'checkbox';
-  favoriteOnly.setAttribute('aria-controls', 'games-list apps-list');
-  const favoriteLabel = M.node('label', 'Только избранное', 'form-check-label');
-  favoriteLabel.htmlFor = favoriteOnly.id;
-  check.append(favoriteOnly, favoriteLabel);
-  favoriteControl.append(check);
-  const favoriteCount = M.node('p', '', 'small text-body-secondary mb-0');
-  favoriteCount.id = 'games-favorites-count';
-  const clearControl = M.node('div');
-  const clearFavorites = M.node('button', 'Очистить избранное', 'btn btn-outline-light');
-  clearFavorites.id = 'games-favorites-clear';
-  clearFavorites.type = 'button';
-  clearControl.append(clearFavorites);
-  favoriteTools.append(favoriteControl, favoriteCount, clearControl);
-  const favoriteStatus = M.node('p', '', 'small text-body-secondary mt-3 mb-0');
-  favoriteStatus.id = 'games-favorites-status';
-  favoriteStatus.setAttribute('role', 'status');
-  favoriteStatus.setAttribute('aria-live', 'polite');
-  favoriteStatus.setAttribute('aria-atomic', 'true');
-  tools.append(favoriteTools, favoriteStatus);
+  // Only elements created in code are added; all appearance classes already exist in Bootstrap.
+  const $favoriteTools = $('<div>').addClass('d-flex flex-column flex-md-row flex-wrap gap-3 mt-3 align-items-md-center');
+  const $favoriteControl = $('<div>').appendTo($favoriteTools);
+  const $check = $('<div>').addClass('form-check').appendTo($favoriteControl);
+  const $favoriteOnly = $('<input>').addClass('form-check-input').attr({
+    id: 'games-favorites-only', type: 'checkbox', 'aria-controls': 'games-list apps-list'
+  }).appendTo($check);
+  $('<label>').addClass('form-check-label').attr('for', 'games-favorites-only')
+    .text('Только избранное').appendTo($check);
+  const $favoriteCount = $('<p>').attr('id', 'games-favorites-count')
+    .addClass('small text-body-secondary mb-0').appendTo($favoriteTools);
+  const $clearControl = $('<div>').appendTo($favoriteTools);
+  // addClass applies existing styles; attr sets button semantics; text inserts safe text; appendTo mounts it.
+  const $clearFavorites = $('<button>').addClass('btn btn-outline-light')
+    .attr({id: 'games-favorites-clear', type: 'button'}).text('Очистить избранное').appendTo($clearControl);
+  const $favoriteStatus = $('<p>').addClass('small text-body-secondary mt-3 mb-0')
+    .attr({id: 'games-favorites-status', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true'});
+  const $savedList = $('<ul>').attr({'id': 'games-saved-list', 'aria-label': 'Сохранённые игры'})
+    .addClass('list-unstyled d-flex flex-wrap gap-3 mt-3 mb-0');
+  $tools.append($favoriteTools, $savedList, $favoriteStatus);
 
+  function show($element, visible) {
+    window.PixelMain.show($element, visible);
+  }
   function readFavorites() {
     let saved;
     try {
@@ -83,88 +84,125 @@
   }
   function announce(message) {
     const warning = storageAvailable ? storageWarning : 'Выбор работает в этой вкладке, но браузер не разрешил сохранить список.';
-    favoriteStatus.textContent = [message, warning].filter(Boolean).join(' ');
+    $favoriteStatus.text([message, warning].filter(Boolean).join(' '));
   }
   function normalize(value) { return value.normalize('NFKC').toLocaleLowerCase('ru-RU').trim().replace(/\s+/g, ' '); }
   function matches(item, query, selectedCategory) {
     const words = normalize(query).split(' ').filter(Boolean);
     return (selectedCategory === 'all' || item.category === selectedCategory)
-      && (!favoriteOnly.checked || favorites.has(item.id))
+      && (!$favoriteOnly.prop('checked') || favorites.has(item.id))
       && words.every(word => normalize(`${item.name} ${item.aliases}`).includes(word));
   }
   function renderCard(item) {
-    // Reuse the original card structure, artwork and all existing classes.
-    const card = item.template.cloneNode(true);
+    const $card = item.template.clone();
     const selected = favorites.has(item.id);
-    const button = M.node('button', selected ? 'В избранном' : 'В избранное', 'btn btn-outline-light mb-3');
-    button.type = 'button';
-    button.dataset.favoriteId = item.id;
-    button.setAttribute('aria-pressed', String(selected));
-    button.setAttribute('aria-label', `${selected ? 'Убрать из избранного' : 'Добавить в избранное'}: ${item.name}`);
-    button.addEventListener('click', () => {
-      if (favorites.has(item.id)) favorites.delete(item.id);
-      else favorites.add(item.id);
-      saveFavorites();
-      filter();
-      announce(`${item.name} ${favorites.has(item.id) ? 'добавлена в избранное.' : 'убрана из избранного.'}`);
-      // Filtering rebuilds cards. Keep keyboard focus on the new button or the filter.
-      const nextButton = [...document.querySelectorAll('[data-favorite-id]')].find(node => node.dataset.favoriteId === item.id);
-      (nextButton || document.querySelector('[data-favorite-id]') || favoriteOnly).focus();
-    });
-    const article = card.querySelector('article');
-    article.insertBefore(button, article.querySelector('a'));
-    return card;
+    const $button = $('<button>').addClass('btn mb-3')
+      .toggleClass('btn-light', selected).toggleClass('btn-outline-light', !selected)
+      .attr({type: 'button', 'data-favorite-id': item.id, 'aria-pressed': String(selected),
+        'aria-label': `${selected ? 'Убрать из избранного' : 'Добавить в избранное'}: ${item.name}`})
+      .text(selected ? 'В избранном' : 'В избранное');
+    $card.find('article > a').before($button);
+    return $card;
   }
-  function renderCards(parent, items) {
-    parent.replaceChildren(...items.map(renderCard));
+  function renderCards($parent, items) {
+    $parent.empty();
+    items.forEach(item => $parent.append(renderCard(item)));
     return items.length;
   }
+  function renderSavedList() {
+    // This array-built list and its items exist only in code, never in the HTML files.
+    const savedGames = catalog.filter(item => favorites.has(item.id));
+    $savedList.empty();
+    savedGames.forEach(item => {
+      const $item = $('<li>').addClass('d-flex align-items-center gap-2');
+      $('<a>').attr('href', `booking.html?game=${encodeURIComponent(item.id)}`)
+        .addClass('small').text(item.name).appendTo($item);
+      $('<button>').attr({type: 'button', 'data-remove-favorite': item.id,
+        'aria-label': `Убрать из избранного: ${item.name}`})
+        .addClass('btn btn-outline-light btn-sm').text('Убрать').appendTo($item);
+      $savedList.append($item);
+    });
+    show($savedList, savedGames.length > 0);
+  }
   function filter() {
-    const filtered = catalog.filter(item => matches(item, search.value, category.value));
-    const gameCount = renderCards(games, filtered.filter(item => item.category !== 'apps'));
-    const appCount = renderCards(apps, filtered.filter(item => item.category === 'apps'));
-    results.textContent = `Показано: ${filtered.length} из ${catalog.length}`;
-    favoriteCount.textContent = `В избранном: ${favorites.size}`;
-    clearFavorites.disabled = favorites.size === 0;
-    const noFavorites = favoriteOnly.checked && favorites.size === 0;
-    empty.querySelector('h2').textContent = noFavorites ? 'В избранном пока пусто' : favoriteOnly.checked ? 'В избранном ничего не найдено' : 'Ничего не найдено';
-    empty.querySelector('p').textContent = noFavorites
+    const filtered = catalog.filter(item => matches(item, $search.val(), $category.val()));
+    const gameCount = renderCards($games, filtered.filter(item => item.category !== 'apps'));
+    const appCount = renderCards($apps, filtered.filter(item => item.category === 'apps'));
+    $results.text(`Показано: ${filtered.length} из ${catalog.length}`);
+    $favoriteCount.text(`В избранном: ${favorites.size}`);
+    $clearFavorites.prop('disabled', favorites.size === 0);
+    const favoritesOnly = $favoriteOnly.is(':checked');
+    const noFavorites = favoritesOnly && favorites.size === 0;
+    $empty.find('h2').text(noFavorites ? 'В избранном пока пусто' : favoritesOnly ? 'В избранном ничего не найдено' : 'Ничего не найдено');
+    $empty.find('p').text(noFavorites
       ? 'Покажите весь каталог и добавьте любимые игры кнопкой «В избранное».'
-      : favoriteOnly.checked ? 'Среди избранных нет совпадений с поиском и жанром. Измените фильтры или покажите весь каталог.'
-        : 'Попробуйте другое название или сбросьте поиск и жанр.';
-    document.getElementById('games-empty-reset').textContent = favoriteOnly.checked ? 'Показать весь каталог' : 'Сбросить поиск и жанр';
-    M.show(empty, filtered.length === 0);
-    M.show(document.getElementById('games-heading'), gameCount > 0);
-    M.show(games, gameCount > 0);
-    M.show(document.getElementById('apps-section'), appCount > 0);
+      : favoritesOnly ? 'Среди избранных нет совпадений с поиском и жанром. Измените фильтры или покажите весь каталог.'
+        : 'Попробуйте другое название или сбросьте поиск и жанр.');
+    $('#games-empty-reset').text(favoritesOnly ? 'Показать весь каталог' : 'Сбросить поиск и жанр');
+    show($empty, filtered.length === 0);
+    show($('#games-heading'), gameCount > 0);
+    show($games, gameCount > 0);
+    show($('#apps-section'), appCount > 0);
+    renderSavedList();
     return filtered.length;
   }
   function reset() {
-    search.value = '';
-    category.value = 'all';
-    favoriteOnly.checked = false;
+    $search.val('');
+    $category.val('all');
+    // .attr('checked') describes the initial HTML attribute; .prop('checked') changes the current checkbox state.
+    $favoriteOnly.prop('checked', false);
     filter();
     announce('Фильтры сброшены. Показан весь каталог, избранное сохранено.');
-    search.focus();
+    $search.trigger('focus');
   }
-  search.addEventListener('input', filter);
-  category.addEventListener('change', filter);
-  favoriteOnly.addEventListener('change', filter);
-  clearFavorites.addEventListener('click', () => {
+  // Cards are created after this binding and replaced after every filter. A direct .on()
+  // on their buttons would miss new buttons; the existing parent receives bubbling clicks.
+  $games.add($apps).on('click', '[data-favorite-id]', function () {
+    const $button = $(this);
+    const $article = $button.closest('article');
+    const id = $article.parent('[data-game-id]').attr('data-game-id');
+    const name = $article.find('h2').text();
+    if (favorites.has(id)) favorites.delete(id);
+    else favorites.add(id);
+    saveFavorites();
+    filter();
+    announce(`${name} ${favorites.has(id) ? 'добавлена в избранное.' : 'убрана из избранного.'}`);
+    // Filtering rebuilds cards. Keep keyboard focus on the new button or the filter.
+    let $next = $('[data-favorite-id]').filter(function () { return $(this).attr('data-favorite-id') === id; }).first();
+    if (!$next.length) $next = $('[data-favorite-id]').first();
+    ($next.length ? $next : $favoriteOnly).trigger('focus');
+  });
+  $tools.on('click', '[data-remove-favorite]', function () {
+    const $button = $(this);
+    const id = $button.attr('data-remove-favorite');
+    const name = $button.siblings('a').text();
+    favorites.delete(id);
+    saveFavorites();
+    filter();
+    announce(`${name} убрана из избранного.`);
+    const $next = $savedList.find('button:first');
+    ($next.length ? $next : $favoriteOnly).trigger('focus');
+  });
+  $search.on('input', filter);
+  $category.add($favoriteOnly).on('change', filter);
+  $clearFavorites.on('click', function () {
+    if ($(this).prop('disabled')) return;
     favorites.clear();
     saveFavorites();
     filter();
     announce('Избранное очищено.');
-    favoriteOnly.focus();
+    $favoriteOnly.trigger('focus');
   });
-  window.addEventListener('storage', event => {
-    if (event.key !== storageKey && event.key !== null) return;
+  $(window).on('storage', function (event) {
+    const changedKey = event.originalEvent.key;
+    if (changedKey !== storageKey && changedKey !== null) return;
     favorites = readFavorites();
     filter();
     announce('Избранное обновлено в другой вкладке.');
   });
-  document.getElementById('games-reset').addEventListener('click', reset);
-  document.getElementById('games-empty-reset').addEventListener('click', reset);
-  M.show(tools, true); M.show(results, true); filter();
+  $('#games-reset, #games-empty-reset').on('click', reset);
+  show($tools, true);
+  show($results, true);
+  filter();
   announce(storageWarning || !storageAvailable ? '' : 'Добавляйте любимые игры — список сохранится на этом устройстве.');
-})();
+});

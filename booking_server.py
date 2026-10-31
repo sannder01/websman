@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict, deque
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import partial
 import hashlib
@@ -117,6 +118,16 @@ def validate(payload, now=None):
         digits = '7' + digits[1:]
     if not 10 <= len(digits) <= 15 or digits.startswith('0'):
         fields['phone'] = 'Укажите телефон с кодом страны, например +7 700 000 00 00.'
+    # Optional e-mail is validated again here: browser checks can be bypassed.
+    email = contact.get('email', '')
+    if not isinstance(email, str):
+        fields['email'] = 'Укажите e-mail в формате name@example.com.'
+        email = ''
+    else:
+        email = email.strip()
+        if email and (len(email) > 254 or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email)
+                      or any(unicodedata.category(c).startswith('C') for c in email)):
+            fields['email'] = 'Укажите e-mail в формате name@example.com.'
     room = source.get('room')
     if not isinstance(room, str) or room not in ROOMS:
         fields['room'] = 'Выберите зал.'
@@ -173,7 +184,7 @@ def validate(payload, now=None):
         fields['nearby'] = 'Проверьте пожелание по посадке.'
     if fields:
         raise BookingError(422, 'validation', 'Проверьте отмеченные поля.', fields)
-    return {'contact': {'name': name.strip(), 'phone': '+' + digits}, 'plan': {
+    return {'contact': {'name': name.strip(), 'phone': '+' + digits, **({'email': email} if email else {})}, 'plan': {
         'room': room, 'guests': guests, 'duration': duration, 'date': date, 'time': clock,
         'mode': mode, 'seat': seat, 'game': game, 'nearby': source.get('nearby') is True and guests > 1,
         'packages': selected, **({'packageId': estimate['packageId'], 'pricingPolicy': PACKAGE_POLICY, 'estimate': estimate} if estimate else {})}, 'start': start}
@@ -187,6 +198,8 @@ def message_for(booking, reference):
     lines = [f'Новая заявка PIXEL · {reference}', '', f'Имя: {contact["name"]}', f'Телефон: {contact["phone"]}',
              f'Зал: {room}', f'Игроки / ПК: {plan["guests"]}', f'Начало: {start:%d.%m.%Y, %H:%M} (Астана)',
              f'Длительность: {plan["duration"]} ч', f'Окончание: {start + timedelta(hours=plan["duration"]):%d.%m.%Y, %H:%M}']
+    if contact.get('email'):
+        lines.append(f'E-mail: {contact["email"]}')
     if plan['mode'] == 'packages':
         lines += ['Пакеты:'] + [f'• {p["name"]} × {p["quantity"]} — {money(p["price"] * p["quantity"])} ₸' for p in plan['packages']]
         quote = plan['estimate']
@@ -244,8 +257,16 @@ class BookingService:
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, digest TEXT NOT NULL, state TEXT NOT NULL, created REAL NOT NULL)')
 
+    @contextmanager
     def connect(self):
-        return sqlite3.connect(self.db_path, timeout=5)
+        # sqlite's context commits/rolls back, but does not close the connection.
+        # Explicitly release it so Windows can reopen/remove the database safely.
+        db = sqlite3.connect(self.db_path, timeout=5)
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def submit(self, payload, client):
         if not self.dry_run and not configured(self.settings):

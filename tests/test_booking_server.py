@@ -62,6 +62,19 @@ class BookingTests(unittest.TestCase):
                 validate(data)
             self.assertEqual(error.exception.status, 422)
 
+    def test_optional_email_is_trimmed_validated_and_included_in_delivery(self):
+        data = payload()
+        self.assertNotIn('email', validate(data)['contact'])
+        data['contact']['email'] = '  guest@example.com  '
+        booking = validate(data)
+        self.assertEqual(booking['contact']['email'], 'guest@example.com')
+        self.assertIn('E-mail: guest@example.com', message_for(booking, 'AAAAAAAA'))
+        for value in ('missing-at.example.com', 'a@b', 'a@b. c', 'a\n@b.com', 'x' * 250 + '@x.com', [], None):
+            with self.subTest(value=value), self.assertRaises(BookingError) as error:
+                data['contact']['email'] = value
+                validate(data)
+            self.assertIn('email', error.exception.fields)
+
     def test_capacity_past_duration_seat_and_game(self):
         for changes in ({'room': 'duo', 'guests': '3'}, {'date': '2020-01-01'}, {'duration': '1.5'},
                         {'duration': '13'}, {'seat': 'vip-01'}, {'game': 'unknown'}, {'date': '2026-02-30'}):
